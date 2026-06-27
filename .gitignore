@@ -1,0 +1,15 @@
+﻿__pycache__/
+*.py[cod]
+*.so
+.env
+downloads/
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+.DS_Store
+venv/
+.venv/
+*.log
