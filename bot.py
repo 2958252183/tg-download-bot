@@ -491,7 +491,8 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
 
         with open(path, "rb") as f:
             await update.message.reply_video(
-                f, caption=cap, supports_streaming=True, reply_markup=reply_markup
+                f, caption=cap, supports_streaming=True, reply_markup=reply_markup,
+                write_timeout=300, read_timeout=60
             )
 
         shutil.rmtree(req_dir, ignore_errors=True)
@@ -534,9 +535,9 @@ async def _send_images(update: Update, context, media: MediaInfo) -> bool:
 
             with open(path, "rb") as f:
                 if ext == ".gif":
-                    await update.message.reply_animation(f, caption=cap)
+                    await update.message.reply_animation(f, caption=cap, write_timeout=120)
                 else:
-                    await update.message.reply_photo(f, caption=cap)
+                    await update.message.reply_photo(f, caption=cap, write_timeout=120)
 
             os.remove(path)
             sent += 1
