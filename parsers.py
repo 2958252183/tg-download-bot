@@ -235,12 +235,6 @@ PLATFORM_MAP: Dict[str, Tuple[str, List[str]]] = {
     # --- 国内平台（优先自定义解析器） ---
     "抖音":   ([r"v\.douyin\.com", r"douyin\.com/video/",
                  r"iesdouyin\.com", r"douyin\.com/note/"], True),
-    "小红书": ([r"xhslink\.com", r"xiaohongshu\.com/discovery/",
-                 r"xiaohongshu\.com/explore/"], True),
-    "快手":   ([r"v\.kuaishou\.com", r"kuaishou\.com/short-video/",
-                 r"kuaishou\.com/f/"], True),
-    "微博":   ([r"weibo\.(?:com|cn)/", r"m\.weibo\.cn/"], True),
-
     # --- B站（yt-dlp 支持很好，但自定义备用） ---
     "B站":    ([r"b23\.tv", r"bilibili\.com/video/",
                  r"bilibili\.com/bangumi/"], True),
@@ -248,7 +242,6 @@ PLATFORM_MAP: Dict[str, Tuple[str, List[str]]] = {
     # --- 国际平台（yt-dlp 主引擎） ---
     "YouTube":      ([r"youtube\.com/", r"youtu\.be/"], False),
     "X":            ([r"(?:twitter\.com|x\.com)/"], False),
-    "Instagram":    ([r"instagram\.com/"], False),
     "Facebook":     ([r"(?:facebook\.com|fb\.com|fb\.watch)/"], False),
     "TikTok":       ([r"tiktok\.com/"], False),
     "Reddit":       ([r"reddit\.com/", r"redd\.it/"], False),
@@ -381,115 +374,6 @@ class DouyinParser:
         except Exception as e:
             print(f"[抖音] {e}")
             return None
-class XiaohongshuParser:
-    """小红书解析器"""
-    PLATFORM = "小红书"
-
-    @classmethod
-    def matches(cls, url: str) -> bool:
-        return bool(re.search(r"xhslink\.com|xiaohongshu\.com/(discovery|explore)/", url))
-
-    async def parse(self, url: str) -> Optional[MediaInfo]:
-        try:
-            headers = {**HEADERS["desktop"], "Referer": "https://www.xiaohongshu.com/"}
-            ckwargs = {"follow_redirects": True, "timeout": 20.0, "headers": headers}
-            if PROXY_URL: ckwargs["proxy"] = PROXY_URL
-            async with httpx.AsyncClient(**ckwargs) as client:
-                if "xhslink.com" in url:
-                    url = str((await client.get(url)).url)
-                html = (await client.get(url)).text
-
-                title = ""
-                urls = []
-
-                data = _safe_json(html, r"window\.__INITIAL_STATE__\s*=\s*(.+?)\s*</script>")
-                if data:
-                    note_map = data.get("note", {}).get("noteDetailMap", {})
-                    nid = next(iter(note_map), "")
-                    note = note_map.get(nid, {}).get("note", {})
-                    title = note.get("title", note.get("desc", ""))
-
-                    for img in note.get("imageList", []):
-                        u = img.get("urlDefault", img.get("url", ""))
-                        if u:
-                            urls.append(u.split("!")[0] if "!" in u else u)
-
-                    video = note.get("video", {})
-                    if video:
-                        for codec in ("h265", "h264"):
-                            streams = video.get("media", {}).get("stream", {}).get(codec, [])
-                            if streams and streams[0]:
-                                mu = streams[0].get("masterUrl", "")
-                                if mu:
-                                    urls = [mu]
-                                    break
-
-                if not title:
-                    soup = BeautifulSoup(html, "lxml")
-                    og = soup.find("meta", property="og:title")
-                    title = og["content"] if og else ""
-
-                if urls:
-                    mt = "video" if ".mp4" in urls[0] else "image"
-                    return MediaInfo(mt, urls, title[:100] or "小红书", self.PLATFORM)
-                return None
-        except Exception as e:
-            print(f"[小红书] {e}")
-            return None
-
-
-class KuaishouParser:
-    """快手解析器"""
-    PLATFORM = "快手"
-
-    @classmethod
-    def matches(cls, url: str) -> bool:
-        return bool(re.search(r"v\.kuaishou\.com|kuaishou\.com/(short-video|f)/", url))
-
-    async def parse(self, url: str) -> Optional[MediaInfo]:
-        try:
-            ckwargs = {"follow_redirects": True, "timeout": 20.0, "headers": HEADERS["mobile"]}
-            if PROXY_URL: ckwargs["proxy"] = PROXY_URL
-            async with httpx.AsyncClient(**ckwargs) as client:
-                if "v.kuaishou.com" in url:
-                    url = str((await client.get(url)).url)
-                html = (await client.get(url, headers=HEADERS["desktop"])).text
-
-                title = ""
-                video_url = None
-
-                # __NEXT_DATA__
-                m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.+?)</script>', html, re.DOTALL)
-                if m:
-                    try:
-                        d = json.loads(m.group(1))
-                        vi = d.get("props", {}).get("pageProps", {}).get("videoInfo", {})
-                        title = vi.get("caption", vi.get("name", ""))
-                        video_url = vi.get("photoUrl", vi.get("videoUrl", ""))
-                    except (json.JSONDecodeError, KeyError):
-                        pass
-
-                if not video_url:
-                    for key in ("videoUrl", "photoUrl"):
-                        m = re.search(rf'"{key}"\s*:\s*"([^"]+)"', html)
-                        if m:
-                            video_url = m.group(1)
-                            break
-
-                if not title:
-                    soup = BeautifulSoup(html, "lxml")
-                    og = soup.find("meta", property="og:title")
-                    title = og["content"] if og else ""
-
-                if video_url:
-                    return MediaInfo("video", [video_url], title or "快手", self.PLATFORM,
-                                     quality_options=[QualityOption("默认", 0, video_url)])
-                return None
-        except Exception as e:
-            print(f"[快手] {e}")
-            return None
-
-
 class BilibiliParser:
     """B站解析器 - 直接调用B站API（yt-dlp被WAF拦截）"""
     PLATFORM = "B站"
@@ -650,9 +534,6 @@ class WeiboParser:
 CUSTOM_PARSERS = [
     DouyinParser(),
     BilibiliParser(),
-    XiaohongshuParser(),
-    KuaishouParser(),
-    WeiboParser(),
 ]
 
 
