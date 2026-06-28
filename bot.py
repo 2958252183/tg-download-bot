@@ -307,32 +307,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok = 0
     fail = 0
     fail_reasons = []
+    results_lock = asyncio.Lock()
 
-    for url, platform in links[:total_links]:
+    async def process_one(url, platform):
+        nonlocal ok, fail
         try:
-            await status.edit_text(f"[{platform}] 解析中...\n{url[:60]}...")
             media = await parse_url(url)
-
             if not media:
-                fail += 1
-                err = get_parse_error(url)
-                if err:
-                    fail_reasons.append(err)
-                continue
-
+                async with results_lock:
+                    fail += 1
+                    err = get_parse_error(url)
+                    if err:
+                        fail_reasons.append(err)
+                return
             sent = await _send_media(update, context, media)
-            if sent:
-                ok += 1
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-            else:
-                fail += 1
-
+            async with results_lock:
+                if sent:
+                    ok += 1
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                else:
+                    fail += 1
         except Exception as e:
             logger.error(f"[{platform}] {e}")
-            fail += 1
+            async with results_lock:
+                fail += 1
+
+    # 并发处理，最多 3 个同时
+    tasks = [process_one(url, platform) for url, platform in links[:total_links]]
+    await status.edit_text(f"\u2699\ufe0f \u5e76\u53d1\u89e3\u6790 {len(tasks)} \u4e2a\u94fe\u63a5...")
+    await asyncio.gather(*tasks)
 
     parts = []
     if ok > 0:
