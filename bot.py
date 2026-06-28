@@ -324,7 +324,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fail += 1
                 err = get_parse_error(url)
                 if err:
-                    fail_reasons.append(f"[{platform}] {err}")
+                    fail_reasons.append(err)
                 continue
 
             sent = await _send_media(update, context, media)
@@ -343,19 +343,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     parts = []
     if ok > 0:
-        parts.append(f"{ok} 个成功")
+        parts.append(f"{ok} \u4e2a\u6210\u529f")
     if fail > 0:
-        parts.append(f"{fail} 个失败")
-    final = " | ".join(parts) if parts else "全部解析失败"
+        parts.append(f"{fail} \u4e2a\u5931\u8d25")
+    final = " | ".join(parts) if parts else "\u5168\u90e8\u89e3\u6790\u5931\u8d25"
     if fail_reasons:
-        final += "
-
-❌ 失败原因：
-" + "
-".join(f"  • {r}" for r in fail_reasons[:3])
+        reasons = "\n".join(f"  \u2022 {r}" for r in fail_reasons[:3])
+        final += f"\n\n\u274c \u5931\u8d25\u539f\u56e0\uff1a\n{reasons}"
         if len(fail_reasons) > 3:
-            final += f"
-  • ...还有 {len(fail_reasons)-3} 个"
+            final += f"\n  \u2022 ...\u8fd8\u6709 {len(fail_reasons)-3} \u4e2a"
 
     try:
         await status.edit_text(final)
