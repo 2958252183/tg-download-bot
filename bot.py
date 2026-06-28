@@ -85,18 +85,18 @@ quality_store: Dict[str, Tuple[MediaInfo, List[QualityOption]]] = {}
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top = SUPPORTED_PLATFORMS[:14]
     await update.message.reply_text(
-        f"xdca 万能链接解析机器人\n\n"
-        f"xdad 直连平台：{' | '.join(top)} ...\n"
-        f"xd4a yt-dlp 引擎额外覆盖 1000+ 全球网站\n\n"
-        f"xdad 默认发送最高画质，点击按钮切换清晰度\n"
-        f"xdad 速率限制：每分钟 {RATE_LIMIT} 条\n"
-        f"xdad 群聊：设为管理员后自动解析"
+        f"万能链接解析机器人\n\n"
+        f"直连平台：{' | '.join(top)} ...\n"
+        f"yt-dlp 引擎额外覆盖 1000+ 全球网站\n\n"
+        f"默认发送最高画质，点击按钮切换清晰度\n"
+        f"速率限制：每分钟 {RATE_LIMIT} 条\n"
+        f"群聊：设为管理员后自动解析"
     )
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "xdca 使用说明\n\n"
+        "使用说明\n\n"
         "1. 发送链接，自动解析并发送最高画质\n"
         "2. 视频下方按钮可切换 720p/1080p/4K 等\n"
         f"3. 每分钟最多 {RATE_LIMIT} 条链接\n"
@@ -106,12 +106,12 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def platforms_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines = [f"xdad 直连平台（{len(SUPPORTED_PLATFORMS)} 个）:\n"]
+    lines = [f"直连平台（{len(SUPPORTED_PLATFORMS)} 个）:\n"]
     cols = 3
     for i in range(0, len(SUPPORTED_PLATFORMS), cols):
         chunk = SUPPORTED_PLATFORMS[i:i+cols]
         lines.append("  |  ".join(f"{i+j+1}.{p}" for j, p in enumerate(chunk)))
-    lines.append("\nxd4a yt-dlp 引擎额外覆盖 1000+ 网站")
+    lines.append("\nyt-dlp 引擎额外覆盖 1000+ 网站")
     await update.message.reply_text("\n".join(lines))
 
 
@@ -136,7 +136,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
             title=f"解析 {platform} 链接",
             description=url[:80],
             input_message_content=InputTextMessageContent(
-                message_text=f"xdca 正在解析 {platform} 链接...\n{url}"
+                message_text=f"正在解析 {platform} 链接...\n{url}"
             ),
         ))
 
@@ -180,18 +180,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     allowed, remaining = check_rate(user.id)
     if not allowed:
         await message.reply_text(
-            f"xd34 速率限制：每分钟最多 {RATE_LIMIT} 条链接，请稍后再试"
+            f"速率限制：每分钟最多 {RATE_LIMIT} 条链接，请稍后再试"
         )
         return
 
     total_links = min(len(links), 5)
 
     if total_links == 1:
-        status = await message.reply_text(f"xdad 解析中... [{links[0][1]}]")
+        status = await message.reply_text(f"解析中... [{links[0][1]}]")
     else:
         plats = ", ".join(dict.fromkeys(p for _, p in links[:total_links]))
         status = await message.reply_text(
-            f"xdad 检测到 {total_links} 个链接 [{plats}]，解析中..."
+            f"检测到 {total_links} 个链接 [{plats}]，解析中..."
             f"\n(剩余 {remaining} 次)"
         )
 
@@ -200,7 +200,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for url, platform in links[:total_links]:
         try:
-            await status.edit_text(f"xdad [{platform}] 解析中...\n{url[:60]}...")
+            await status.edit_text(f"[{platform}] 解析中...\n{url[:60]}...")
             media = await parse_url(url)
 
             if not media:
@@ -219,10 +219,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     parts = []
     if ok > 0:
-        parts.append(f"xe285 {ok} 个成功")
+        parts.append(f"{ok} 个成功")
     if fail > 0:
-        parts.append(f"xe29d {fail} 个失败")
-    final = " | ".join(parts) if parts else "xe29d 全部解析失败"
+        parts.append(f"{fail} 个失败")
+    final = " | ".join(parts) if parts else "全部解析失败"
 
     try:
         await status.edit_text(final)
@@ -292,7 +292,7 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
                 if pct >= last_pct + 20:  # 每20%更新一次
                     last_pct = pct
                     try:
-                        await update.message.reply_text(f"xdad 下载中... {pct}%")
+                        await update.message.reply_text(f"下载中... {pct}%")
                     except Exception:
                         pass
 
@@ -325,7 +325,7 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
         if size > MAX_FILE_SIZE:
             shutil.rmtree(req_dir, ignore_errors=True)
             await update.message.reply_text(
-                f"xd34 文件 {size/1024/1024:.1f}MB 超过 50MB Telegram 限制"
+                f"文件 {size/1024/1024:.1f}MB 超过 50MB Telegram 限制"
             )
             return False
 
@@ -342,7 +342,7 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
             for i, opt in enumerate(q_opts[:9]):
                 label = opt.label
                 if i == 0:
-                    label = f"xdad {opt.label}"
+                    label = f"{opt.label}"
                 row.append(InlineKeyboardButton(label, callback_data=f"q:{cache_key}:{i}"))
                 if len(row) == 3:
                     keyboard.append(row); row = []
@@ -431,7 +431,7 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     opt = q_opts[idx]
-    await query.answer(f"xd4a 正在下载 {opt.label} ...")
+    await query.answer(f"正在下载 {opt.label} ...")
 
     # 下载所选清晰度
     path = os.path.join(
@@ -442,18 +442,18 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         ok = await download_file(opt.url, path)
         if not ok:
-            await query.message.reply_text(f"xe29d 下载 {opt.label} 失败")
+            await query.message.reply_text(f"下载 {opt.label} 失败")
             return
 
         size = os.path.getsize(path)
         if size == 0 or size > MAX_FILE_SIZE:
             os.remove(path)
             await query.message.reply_text(
-                f"xd34 {opt.label} 文件 {size/1024/1024:.1f}MB 超过限制"
+                f"{opt.label} 文件 {size/1024/1024:.1f}MB 超过限制"
             )
             return
 
-        cap = f"{media.summary()}\nxd4a 清晰度: {opt.label}"
+        cap = f"{media.summary()}\n清晰度: {opt.label}"
         if opt.filesize:
             cap += f" | {opt.filesize/1024/1024:.1f}MB"
 
@@ -467,7 +467,7 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"清晰度切换失败: {e}")
-        await query.message.reply_text(f"xe29d {opt.label} 发送失败")
+        await query.message.reply_text(f"{opt.label} 发送失败")
         if os.path.exists(path):
             os.remove(path)
 
@@ -480,7 +480,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}", exc_info=context.error)
     if update and hasattr(update, "message") and update.message:
         try:
-            await update.message.reply_text("xe29d 处理出错，请稍后重试")
+            await update.message.reply_text("处理出错，请稍后重试")
         except Exception:
             pass
 
@@ -497,16 +497,16 @@ async def start_bot(webhook_url: str = None):
     # ---- 构造 API 端点 ----
     api_base = TELEGRAM_PROXY_URL or "https://api.telegram.org/bot"
     api_file = api_base.replace("/bot", "/file/bot")
-    logger.info(f"xd4a Telegram API: {api_base[:40]}...")
+    logger.info(f"Telegram API: {api_base[:40]}...")
 
     # ---- 预验证 Token ----
-    logger.info(f"xd4a 正在验证 BOT_TOKEN (前8位): {BOT_TOKEN[:8]}...")
+    logger.info(f"正在验证 BOT_TOKEN (前8位): {BOT_TOKEN[:8]}...")
     try:
         test_bot = Bot(token=BOT_TOKEN, base_url=api_base, base_file_url=api_file)
         me = await test_bot.get_me()
-        logger.info(f"xdad Token 有效! 机器人: @{me.username} (ID: {me.id}, Name: {me.first_name})")
+        logger.info(f"Token 有效! 机器人: @{me.username} (ID: {me.id}, Name: {me.first_name})")
     except Exception as e:
-        logger.error(f"xd34 Token 验证失败: {e}")
+        logger.error(f"Token 验证失败: {e}")
         raise ValueError(f"无法连接 Telegram: {e}") from e
 
     # ---- 构建 Application ----
@@ -532,20 +532,20 @@ async def start_bot(webhook_url: str = None):
     await app.initialize()
     await app.start()
 
-    logger.info(f"xdca 机器人启动 | {len(SUPPORTED_PLATFORMS)} 平台直连 + yt-dlp 1000+")
+    logger.info(f"机器人启动 | {len(SUPPORTED_PLATFORMS)} 平台直连 + yt-dlp 1000+")
 
     if webhook_url:
         # ---- Webhook 模式 ----
-        logger.info(f"xd4a 设置 Webhook: {webhook_url}")
+        logger.info(f"设置 Webhook: {webhook_url}")
         await app.bot.set_webhook(url=webhook_url)
-        logger.info("xdad Webhook 已设置，等待 Telegram 推送...")
+        logger.info("Webhook 已设置，等待 Telegram 推送...")
 
         import bot as bot_module
         bot_module._app_instance = app
     else:
         # ---- Polling 模式 ----
         logger.info("速率限制: %s 条/%s秒", RATE_LIMIT, RATE_WINDOW)
-        logger.info("xdad 开始轮询 Telegram 更新...")
+        logger.info("开始轮询 Telegram 更新...")
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
     try:

@@ -63,7 +63,7 @@ def auto_update():
             if r.returncode == 0:
                 for line in r.stdout.split("\n"):
                     if "yt-dlp" in line:
-                        logger.info(f"xe285 yt-dlp: {line.strip()}")
+                        logger.info(f"yt-dlp: {line.strip()}")
                         break
         except Exception as e:
             logger.warning(f"更新失败: {e}")
@@ -138,16 +138,16 @@ def get_status():
             bot_uptime = int(time.time() - _bot_start_time)
             bh, br = divmod(bot_uptime, 3600)
             bm, bs = divmod(br, 60)
-            status_text = f"xdad 运行中 (bot 已运行 {bh}h {bm}m)"
+            status_text = f"运行中 (bot 已运行 {bh}h {bm}m)"
             if PROXY_URL:
-                status_text += "\nxd4a 代理: " + PROXY_URL.split("://")[-1].split("@")[-1][:30]
+                status_text += "\n代理: " + PROXY_URL.split("://")[-1].split("@")[-1][:30]
         elif _bot_status == "error":
             short_err = _bot_error_msg[:60].replace("\n", " ")
-            status_text = f"xd34 错误: {short_err}"
+            status_text = f"错误: {short_err}"
         elif _bot_status == "starting":
-            status_text = "xd4a 启动中..."
+            status_text = "启动中..."
         else:
-            status_text = f"xd34 状态异常: {_bot_status}"
+            status_text = f"状态异常: {_bot_status}"
 
         return (
             status_text,
@@ -156,18 +156,18 @@ def get_status():
             "10条/分钟",
         )
 
-    return ("xd34 未配置 BOT_TOKEN — 请在 HF Settings → Secrets 设置 BOT_TOKEN", "0", "0s", "N/A")
+    return ("未配置 BOT_TOKEN — 请在 HF Settings → Secrets 设置 BOT_TOKEN", "0", "0s", "N/A")
 
 
 def create_ui():
     with gr.Blocks(title="万能链接解析 Bot") as demo:
         gr.Markdown("""
-        # xdca 万能链接解析 Telegram 机器人
+        # 万能链接解析 Telegram 机器人
 
-        ### xe285 平台覆盖
+        ### 平台覆盖
         直连 32 平台 + yt-dlp 引擎覆盖 **1000+** 全球网站
 
-        ### xe285 功能
+        ### 功能
         - 三层回退链（自定义 xf8fx yt-dlp xf8fx 兜底）
         - 重试容错 + 代理支持 + Cookie 注入
         - 多清晰度内联按钮切换
@@ -214,7 +214,7 @@ def _run_bot_in_thread():
         asyncio.set_event_loop(loop)
 
         _bot_status = "running"
-        logger.info("xdad 机器人事件循环启动，开始轮询 Telegram...")
+        logger.info("机器人事件循环启动，开始轮询 Telegram...")
 
         # Polling mode - no webhook_url
         loop.run_until_complete(start_bot(webhook_url=None))
@@ -222,25 +222,25 @@ def _run_bot_in_thread():
     except Exception as e:
         _bot_status = "error"
         _bot_error_msg = f"{type(e).__name__}: {e}"
-        logger.error("xd34 机器人启动失败!")
+        logger.error("机器人启动失败!")
         logger.error(f"   错误类型: {type(e).__name__}")
         logger.error(f"   错误信息: {e}")
         logger.error(f"   完整堆栈:\n{traceback.format_exc()}")
 
         err_str = str(e).lower()
         if "unauthorized" in err_str or "401" in err_str:
-            logger.error("xd34 xe285 诊断: BOT_TOKEN 无效！")
+            logger.error("诊断: BOT_TOKEN 无效！")
         elif "connection" in err_str or "timeout" in err_str:
-            logger.error("xd34 xe285 诊断: 无法连接 Telegram API (检查 TELEGRAM_PROXY_URL)")
+            logger.error("诊断: 无法连接 Telegram API (检查 TELEGRAM_PROXY_URL)")
         elif "conflict" in err_str or "409" in err_str:
-            logger.error("xd34 xe285 诊断: 可能存在另一个实例正在使用同一 token (409 Conflict)")
+            logger.error("诊断: 可能存在另一个实例正在使用同一 token (409 Conflict)")
     finally:
         if _bot_status not in ("error", "stopped"):
             _bot_status = "stopped"
         logger.info(f"机器人线程结束，最终状态: {_bot_status}")
 def main():
     if not BOT_TOKEN:
-        logger.error("xd34 未设置 BOT_TOKEN！请在 HF Space Settings -> Secrets -> BOT_TOKEN 添加")
+        logger.error("未设置 BOT_TOKEN！请在 HF Space Settings -> Secrets -> BOT_TOKEN 添加")
         logger.error("   获取 Token: @BotFather -> /newbot -> 复制 token")
         logger.error("   HF Secrets: Space Settings -> Repository Secrets -> New Secret")
 
@@ -253,7 +253,7 @@ def main():
     # ---- Polling 模式 (通过 Cloudflare Worker 代理) ----
     if BOT_TOKEN:
         threading.Thread(target=_run_bot_in_thread, daemon=True).start()
-        logger.info("xdca Polling 模式已启动 (通过 Worker 代理)")
+        logger.info("Polling 模式已启动 (通过 Worker 代理)")
 
     demo.queue()
     demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
