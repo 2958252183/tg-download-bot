@@ -12,6 +12,7 @@ import uuid
 import tempfile
 import asyncio
 import logging
+import httpx
 import shutil
 from collections import defaultdict
 from typing import Optional, Dict, List, Tuple
