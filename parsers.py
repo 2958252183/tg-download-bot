@@ -74,6 +74,19 @@ def _load_cookies_dict() -> dict:
                 cookies[parts[5]] = parts[6]
     return cookies
 
+# ============================================================
+# 解析错误追踪
+# ============================================================
+
+_parse_errors = {}  # url -> error message
+
+def get_parse_error(url: str) -> str:
+    return _parse_errors.pop(url, "")
+
+def set_parse_error(url: str, msg: str):
+    _parse_errors[url] = msg
+
+
 # 重试装饰器
 def _retry(max_tries: int = 3, base_delay: float = 1.0):
     """异步指数退避重试"""
@@ -333,6 +346,7 @@ class DouyinParser:
                             pass
                         break
                 if not aweme:
+                    set_parse_error(url, "抖音页面未找到视频数据，可能链接无效或已被删除")
                     return None
                 title = aweme.get("desc", "")
                 author = aweme.get("author", {}).get("nickname", "")
@@ -506,6 +520,7 @@ class BilibiliParser:
                     m = re.search(r"BV[a-zA-Z0-9]+", url)
                     if m: bvid = m.group(0)
                 if not bvid:
+                    set_parse_error(url, "无法从B站链接提取视频ID")
                     return None
 
                 api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
@@ -514,6 +529,7 @@ class BilibiliParser:
                 data = resp.json()
                 vdata = data.get("data", {})
                 if not vdata:
+                    set_parse_error(url, "B站API返回空数据，可能视频不存在或已下架")
                     return None
 
                 title = vdata.get("title", "")
@@ -525,6 +541,7 @@ class BilibiliParser:
                 resp2 = await client.get(play_api, headers=ah)
                 pdata = resp2.json().get("data", {})
                 if not pdata:
+                    set_parse_error(url, "B站播放地址获取失败，可能需要大会员或地区限制")
                     return None
 
                 quality_options = []

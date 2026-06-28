@@ -26,6 +26,7 @@ from telegram.ext import (
 from parsers import (
     parse_url, extract_all_links, download_file,
     clean_filename, MediaInfo, QualityOption, PLATFORM_MAP,
+    get_parse_error,
 )
 
 # 视频压缩
@@ -312,6 +313,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ok = 0
     fail = 0
+    fail_reasons = []
 
     for url, platform in links[:total_links]:
         try:
@@ -320,6 +322,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if not media:
                 fail += 1
+                err = get_parse_error(url)
+                if err:
+                    fail_reasons.append(f"[{platform}] {err}")
                 continue
 
             sent = await _send_media(update, context, media)
@@ -342,6 +347,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fail > 0:
         parts.append(f"{fail} 个失败")
     final = " | ".join(parts) if parts else "全部解析失败"
+    if fail_reasons:
+        final += "
+
+❌ 失败原因：
+" + "
+".join(f"  • {r}" for r in fail_reasons[:3])
+        if len(fail_reasons) > 3:
+            final += f"
+  • ...还有 {len(fail_reasons)-3} 个"
 
     try:
         await status.edit_text(final)
