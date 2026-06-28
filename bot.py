@@ -28,6 +28,7 @@ from parsers import (
     clean_filename, MediaInfo, QualityOption, PLATFORM_MAP,
     get_parse_error,
 )
+from parsers import COOKIES_FILE
 
 # 视频压缩
 import subprocess
@@ -52,6 +53,7 @@ AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_API_BASE = os.environ.get("AI_API_BASE", "https://api.openai.com/v1")
 AI_MODEL = os.environ.get("AI_MODEL", "gpt-4o-mini")
 DOWNLOAD_DIR = tempfile.mkdtemp(prefix="tg_media_")
+_start_time = time.time()
 
 SUPPORTED_PLATFORMS = list(PLATFORM_MAP.keys())
 
@@ -67,13 +69,24 @@ RATE_WINDOW = 60      # 秒
 def check_rate(user_id: int) -> Tuple[bool, int]:
     """返回 (是否允许, 剩余次数)"""
     now = time.time()
-    timestamps = [t for t in _rate_map[user_id] if now - t < RATE_WINDOW]
+    timestamps = [t for t in _rate_map.get(user_id, []) if now - t < RATE_WINDOW]
     _rate_map[user_id] = timestamps
     remaining = RATE_LIMIT - len(timestamps)
     if remaining <= 0:
         return False, 0
     timestamps.append(now)
     return True, remaining - 1
+
+# Periodic cleanup of stale entries (every 10 minutes)
+_last_cleanup = 0
+def _cleanup_rate_map():
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup > 600:
+        stale = [uid for uid, ts in list(_rate_map.items()) if not ts or now - ts[-1] > RATE_WINDOW * 2]
+        for uid in stale:
+            del _rate_map[uid]
+        _last_cleanup = now
 
 
 # ============================================================
@@ -254,6 +267,23 @@ async def _send_typing_loop(message):
         pass
 
 # 清除对话历史命令
+
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import os
+    uptime = int(time.time() - _start_time) if "_start_time" in dir() else 0
+    h, r = divmod(uptime, 3600)
+    m, s = divmod(r, 60)
+    active_users = len([uid for uid, ts in _rate_map.items() if ts])
+    await update.message.reply_text(
+        f"\U0001f4ca \u673a\u5668\u4eba\u72b6\u6001\n\n"
+        f"\u23f3 \u8fd0\u884c\u65f6\u95f4\uff1a{h}h {m}m\n"
+        f"\U0001f465 \u6d3b\u8dc3\u7528\u6237\uff1a{active_users}\n"
+        f"\U0001f310 \u652f\u6301\u5e73\u53f0\uff1a{len(SUPPORTED_PLATFORMS)}\n"
+        f"\U0001f6ab \u901f\u7387\u9650\u5236\uff1a{RATE_LIMIT}\u6761/\u5206\u949f\n"
+        f"\U0001f916 AI\uff1a{'\u5df2\u542f\u7528' if AI_API_KEY else '\u672a\u542f\u7528'}\n"
+        f"\U0001f36a Cookie\uff1a{'\u5df2\u914d\u7f6e' if COOKIES_FILE else '\u672a\u914d\u7f6e'}"
+    )
+
 async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     _chat_history.pop(user_id, None)
@@ -286,6 +316,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ---- 速率限制 ----
+    _cleanup_rate_map()
     allowed, remaining = check_rate(user.id)
     if not allowed:
         await message.reply_text(
@@ -682,6 +713,7 @@ async def start_bot(webhook_url: str = None):
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("platforms", platforms_cmd))
     app.add_handler(CommandHandler("clear", clear_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CallbackQueryHandler(quality_callback, pattern=r"^q:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(InlineQueryHandler(inline_query))
