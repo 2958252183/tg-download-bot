@@ -12,6 +12,7 @@ from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass, field
 
 import httpx
+import http.cookiejar
 from bs4 import BeautifulSoup
 
 
@@ -212,7 +213,7 @@ PLATFORM_MAP: Dict[str, Tuple[str, List[str]]] = {
 
     # --- B站（yt-dlp 支持很好，但自定义备用） ---
     "B站":    ([r"b23\.tv", r"bilibili\.com/video/",
-                 r"bilibili\.com/bangumi/"], False),
+                 r"bilibili\.com/bangumi/"], True),
 
     # --- 国际平台（yt-dlp 主引擎） ---
     "YouTube":      ([r"youtube\.com/", r"youtu\.be/"], False),
@@ -458,6 +459,99 @@ class KuaishouParser:
             return None
 
 
+class BilibiliParser:
+    """B站解析器 - 直接调用B站API（yt-dlp被WAF拦截）"""
+    PLATFORM = "B站"
+
+    @classmethod
+    def matches(cls, url: str) -> bool:
+        return bool(re.search(r"b23\.tv|bilibili\.com/video/|bilibili\.com/bangumi/", url))
+
+    async def parse(self, url: str) -> Optional[MediaInfo]:
+        try:
+            headers = {**HEADERS["desktop"], "Referer": "https://www.bilibili.com/"}
+            ckwargs = {"follow_redirects": True, "timeout": 20.0, "headers": headers}
+            if PROXY_URL: ckwargs["proxy"] = PROXY_URL
+
+            async with httpx.AsyncClient(**ckwargs) as client:
+                await client.get("https://www.bilibili.com/", headers=headers)
+
+                if "b23.tv" in url:
+                    resp = await client.get(url)
+                    url = str(resp.url)
+
+                bvid = None
+                for seg in ["/video/", "/bangumi/play/"]:
+                    if seg in url:
+                        bvid = url.split(seg)[1].split("?")[0].split("/")[0].strip("/")
+                        break
+                if not bvid:
+                    m = re.search(r"BV[a-zA-Z0-9]+", url)
+                    if m: bvid = m.group(0)
+                if not bvid:
+                    return None
+
+                api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+                ah = {**headers, "Referer": f"https://www.bilibili.com/video/{bvid}"}
+                resp = await client.get(api, headers=ah)
+                data = resp.json()
+                vdata = data.get("data", {})
+                if not vdata:
+                    return None
+
+                title = vdata.get("title", "")
+                author = vdata.get("owner", {}).get("name", "")
+                pages = vdata.get("pages", [{}])
+                cid = pages[0].get("cid", vdata.get("cid", ""))
+
+                play_api = f"https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn=120&fnval=4048&fourk=1"
+                resp2 = await client.get(play_api, headers=ah)
+                pdata = resp2.json().get("data", {})
+                if not pdata:
+                    return None
+
+                quality_options = []
+                best_url = ""
+
+                dash = pdata.get("dash", {})
+                dash_videos = dash.get("video", [])
+                if dash_videos:
+                    dash_videos.sort(key=lambda x: x.get("height", 0), reverse=True)
+                    seen_heights = set()
+                    for v in dash_videos:
+                        h = v.get("height", 0)
+                        if h > 0 and h not in seen_heights:
+                            seen_heights.add(h)
+                            q_url = v.get("baseUrl") or v.get("base_url", "")
+                            if q_url:
+                                quality_options.append(QualityOption(f"{h}p", h, q_url))
+                    if quality_options:
+                        best_url = quality_options[0].url
+
+                durl_list = pdata.get("durl", [])
+                if not quality_options and durl_list:
+                    for i, du in enumerate(durl_list[:4]):
+                        du_url = du.get("url", "")
+                        if du_url:
+                            quality_options.append(QualityOption(f"P{i+1}", 0, du_url))
+                    if quality_options:
+                        best_url = quality_options[0].url
+
+                if not best_url:
+                    return None
+
+                duration = vdata.get("duration", 0)
+                return MediaInfo(
+                    "video", [best_url],
+                    title, self.PLATFORM,
+                    duration, author,
+                    quality_options=quality_options if quality_options else None
+                )
+        except Exception as e:
+            print(f"[B站] {e}")
+            return None
+
+
 class WeiboParser:
     """微博解析器"""
     PLATFORM = "微博"
@@ -521,6 +615,7 @@ class WeiboParser:
 # 自定义解析器实例
 CUSTOM_PARSERS = [
     DouyinParser(),
+    BilibiliParser(),
     XiaohongshuParser(),
     KuaishouParser(),
     WeiboParser(),
@@ -552,6 +647,30 @@ async def ytdlp_parse(url: str, platform: str = "其他") -> Optional[MediaInfo]
     return await loop.run_in_executor(None, _ytdlp_extract, url, platform)
 
 
+def _fetch_guest_cookies(domain: str) -> Optional[str]:
+    """获取网站访客cookie，返回临时cookiefile路径"""
+    try:
+        import tempfile
+        jar = http.cookiejar.CookieJar()
+        with httpx.Client(follow_redirects=True, timeout=15,
+                          headers=HEADERS["desktop"]) as client:
+            client.get(f"https://{domain}/")
+            fd, path = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
+            with os.fdopen(fd, "w") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                cookies_dict = {}
+                for cookie in client.cookies.jar:
+                    cookies_dict[cookie.name] = cookie
+                for name, cookie in cookies_dict.items():
+                    cd = cookie.domain or f".{domain}"
+                    cp = cookie.path or "/"
+                    sec = "TRUE" if cookie.secure else "FALSE"
+                    exp = str(cookie.expires) if cookie.expires else "0"
+                    f.write(f"{cd}\tTRUE\t{cp}\t{sec}\t{exp}\t{name}\t{cookie.value}\n")
+            return path
+    except Exception:
+        return None
+
 def _ytdlp_extract(url: str, platform: str) -> Optional[MediaInfo]:
     try:
         import yt_dlp
@@ -571,10 +690,24 @@ def _ytdlp_extract(url: str, platform: str) -> Optional[MediaInfo]:
         opts["proxy"] = PROXY_URL
     if COOKIES_FILE and os.path.exists(COOKIES_FILE):
         opts["cookiefile"] = COOKIES_FILE
+    # Try to get guest cookies
+    if not opts.get("cookiefile"):
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+        if domain:
+            cookie_path = _fetch_guest_cookies(domain)
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
+        # Clean up temp cookie file
+        if "cookiefile" in opts and opts["cookiefile"] and opts["cookiefile"] != COOKIES_FILE:
+            try:
+                os.remove(opts["cookiefile"])
+            except Exception:
+                pass
         print(f"[yt-dlp] 提取失败: {e}")
         return None
 
