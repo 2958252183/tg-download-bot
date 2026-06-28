@@ -16,7 +16,7 @@ COPY . .
 
 RUN mkdir -p downloads
 
-EXPOSE 7860 8080 8443
+EXPOSE 8080 8443
 
 # 环境变量默认值
 ENV UPDATE_INTERVAL=86400

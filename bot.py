@@ -311,6 +311,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async def process_one(url, platform):
         nonlocal ok, fail
+        # Check rate limit per-link for concurrent safety
+        async with results_lock:
+            allowed, _ = check_rate(user.id)
+        if not allowed:
+            async with results_lock:
+                fail += 1
+            return
         try:
             media = await parse_url(url)
             if not media:
