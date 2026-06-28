@@ -269,6 +269,12 @@ async def _send_typing_loop(message):
 
 # 清除对话历史命令
 
+# Pre-defined Chinese strings for f-string compatibility (Python 3.11)
+ai_on = "已启用"
+ai_off = "未启用"
+cookie_on = "已配置"
+cookie_off = "未配置"
+
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import os
     uptime = int(time.time() - _start_time) if "_start_time" in dir() else 0
@@ -281,8 +287,8 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f465 \u6d3b\u8dc3\u7528\u6237\uff1a{active_users}\n"
         f"\U0001f310 \u652f\u6301\u5e73\u53f0\uff1a{len(SUPPORTED_PLATFORMS)}\n"
         f"\U0001f6ab \u901f\u7387\u9650\u5236\uff1a{RATE_LIMIT}\u6761/\u5206\u949f\n"
-        f"\U0001f916 AI\uff1a{'\u5df2\u542f\u7528' if AI_API_KEY else '\u672a\u542f\u7528'}\n"
-        f"\U0001f36a Cookie\uff1a{'\u5df2\u914d\u7f6e' if COOKIES_FILE else '\u672a\u914d\u7f6e'}"
+        f"\U0001f916 AI\uff1a{ai_on if AI_API_KEY else ai_off}\n"
+        f"\U0001f36a Cookie\uff1a{cookie_on if COOKIES_FILE else cookie_off}"
     )
 
 async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
