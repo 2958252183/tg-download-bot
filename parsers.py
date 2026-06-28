@@ -1,4 +1,4 @@
-﻿"""
+"""
 万能媒体解析器 - yt-dlp主引擎 (1000+平台) + 自定义解析器
 支持：抖音/快手/B站/微博/小红书 + YouTube/X/Instagram/Facebook/TikTok/Reddit 等全球平台
 """

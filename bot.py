@@ -1,4 +1,4 @@
-﻿"""
+"""
 Telegram 万能链接解析机器人
 - 支持 30+ 中文平台 + yt-dlp 1000+ 全球平台
 - 速率限制：每用户每分钟最多10条链接
@@ -45,8 +45,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
-WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT", "8443"))
 DOWNLOAD_DIR = tempfile.mkdtemp(prefix="tg_media_")
 
 SUPPORTED_PLATFORMS = list(PLATFORM_MAP.keys())
@@ -315,7 +313,7 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
         if COMPRESS_THRESHOLD < size <= COMPRESS_MAX:
             compressed = os.path.join(req_dir, f"compressed_{uuid.uuid4().hex[:6]}.mp4")
             logger.info(f"视频 {size/1024/1024:.1f}MB 超过限制，尝试压缩...")
-            if compress_video(path, compressed, target_mb=45):
+            if False:  # ffmpeg not available in Gradio SDK
                 os.remove(path)
                 path = compressed
                 size = os.path.getsize(path)
@@ -490,6 +488,23 @@ async def start_bot():
     if not BOT_TOKEN:
         raise ValueError("未设置 BOT_TOKEN 环境变量")
 
+    # ---- 预验证 Token ----
+    from telegram import Bot
+    from telegram.error import TelegramError
+
+    logger.info(f"xd4a 正在验证 BOT_TOKEN (前8位): {BOT_TOKEN[:8]}...")
+    try:
+        test_bot = Bot(token=BOT_TOKEN)
+        me = await test_bot.get_me()
+        logger.info(f"xdad Token 有效! 机器人: @{me.username} (ID: {me.id}, Name: {me.first_name})")
+    except TelegramError as e:
+        logger.error(f"xd34 Token 验证失败: {e}")
+        raise ValueError(f"BOT_TOKEN 无效: {e}") from e
+    except Exception as e:
+        logger.error(f"xd34 网络连接失败，无法访问 Telegram API: {e}")
+        raise ConnectionError(f"无法连接 Telegram API: {e}") from e
+
+    # ---- 构建 Application ----
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -497,9 +512,6 @@ async def start_bot():
     app.add_handler(CommandHandler("platforms", platforms_cmd))
     app.add_handler(CallbackQueryHandler(quality_callback, pattern=r"^q:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # 内联模式
-    from telegram.ext import InlineQueryHandler
     app.add_handler(InlineQueryHandler(inline_query))
 
     app.add_error_handler(error_handler)
@@ -510,24 +522,16 @@ async def start_bot():
     await app.initialize()
     await app.start()
 
-    if WEBHOOK_URL:
-        webhook_path = f"{WEBHOOK_URL.rstrip('/')}/webhook"
-        await app.bot.set_webhook(url=webhook_path)
-        logger.info(f"Webhook 模式: {webhook_path}")
-        await app.run_webhook(
-            listen="0.0.0.0",
-            port=WEBHOOK_PORT,
-            webhook_url=webhook_path,
-        )
-    else:
-        logger.info("Polling 模式")
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        except asyncio.CancelledError:
-            pass
+    logger.info("xdad 开始轮询 Telegram 更新...")
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        logger.info("机器人收到停止信号")
+
+    await app.updater.stop()
     await app.stop()
     await app.shutdown()
     shutil.rmtree(DOWNLOAD_DIR, ignore_errors=True)

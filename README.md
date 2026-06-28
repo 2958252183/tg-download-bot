@@ -1,3 +1,8 @@
+---
+sdk: docker
+app_port: 7860
+---
+
 ﻿# xdca 万能链接解析 Telegram 机器人
 
 自动识别 **32+ 直连平台 + yt-dlp 1000+ 全球网站** 的分享链接，下载最高画质发送到 Telegram。
