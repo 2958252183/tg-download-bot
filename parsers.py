@@ -47,6 +47,18 @@ PROXY_URL = _get_proxy()
 # Cookie 文件
 COOKIES_FILE = os.environ.get("COOKIES_FILE", "")
 
+_COOKIES_B64 = os.environ.get("COOKIES_BASE64", "")
+if _COOKIES_B64 and not COOKIES_FILE:
+    import base64, tempfile
+    try:
+        fd, cp = tempfile.mkstemp(suffix=".txt", prefix="cookies_")
+        with os.fdopen(fd, "w", encoding="utf-8") as cf:
+            cf.write(base64.b64decode(_COOKIES_B64).decode("utf-8"))
+        COOKIES_FILE = cp
+        print("[cookies] Loaded from COOKIES_BASE64")
+    except Exception as e:
+        print(f"[cookies] Failed: {e}")
+
 def _load_cookies_dict() -> dict:
     """从 Netscape 格式 cookie 文件解析"""
     if not COOKIES_FILE or not os.path.exists(COOKIES_FILE):
