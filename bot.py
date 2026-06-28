@@ -285,13 +285,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # 群聊兼容
-    chat_type = message.chat.type
-    if chat_type in ("group", "supergroup"):
-        bot_un = f"@{context.bot.username}" if context.bot.username else ""
-        if bot_un and bot_un not in text:
-            return
-
     # ---- 速率限制 ----
     allowed, remaining = check_rate(user.id)
     if not allowed:
