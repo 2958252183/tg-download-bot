@@ -11,6 +11,7 @@ import time
 import uuid
 import tempfile
 import asyncio
+import random
 import logging
 import httpx
 import shutil
@@ -692,10 +693,15 @@ async def start_bot(webhook_url: str = None):
         raise ValueError("未设置 BOT_TOKEN 环境变量")
 
     from telegram import Bot
-    from telegram.error import TelegramError
+    from telegram.error import TelegramError, Conflict
     import httpx
 
     # ---- 构造 API 端点 ----
+    # Startup delay: avoid multi-instance Conflict on Railway
+    delay = random.uniform(3, 8)
+    logger.info("Startup delay %.1fs to avoid multi-instance conflict...", delay)
+    await asyncio.sleep(delay)
+
     api_base = TELEGRAM_PROXY_URL or "https://api.telegram.org/bot"
     api_file = api_base.replace("/bot", "/file/bot")
     logger.info(f"Telegram API: {api_base[:40]}...")
@@ -746,10 +752,32 @@ async def start_bot(webhook_url: str = None):
         import bot as bot_module
         bot_module._app_instance = app
     else:
-        # ---- Polling 模式 ----
-        logger.info("速率限制: %s 条/%s秒", RATE_LIMIT, RATE_WINDOW)
-        logger.info("开始轮询 Telegram 更新...")
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        # ---- Polling mode ----
+        # Delete stale webhook first to avoid Conflict
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Cleaned up old webhook")
+        except Exception as e:
+            logger.warning("Webhook cleanup failed (ignorable): %s", e)
+
+        logger.info("Rate limit: %s per %ss", RATE_LIMIT, RATE_WINDOW)
+
+        # Retry polling with Conflict handling
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info("Starting polling... (attempt %d/%d)", attempt, max_retries)
+                await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+                logger.info("Polling started successfully")
+                break
+            except Conflict as e:
+                if attempt < max_retries:
+                    wait = 5 * attempt
+                    logger.warning("Conflict, retrying in %ds... (%s)", wait, e)
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("Still conflict after %d retries: %s", max_retries, e)
+                    raise
 
     try:
         while True:
