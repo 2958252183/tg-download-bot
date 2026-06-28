@@ -21,13 +21,21 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import gradio as gr
 
-from bot import BOT_TOKEN, SUPPORTED_PLATFORMS
+from bot import BOT_TOKEN, SUPPORTED_PLATFORMS, TELEGRAM_PROXY_URL
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# 加载 .env 文件（本地开发用）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 UPDATE_INTERVAL = int(os.environ.get("UPDATE_INTERVAL", "86400"))
 SPACE_URL = os.environ.get("SPACE_URL", "")
@@ -131,6 +139,8 @@ def get_status():
             bh, br = divmod(bot_uptime, 3600)
             bm, bs = divmod(br, 60)
             status_text = f"xdad 运行中 (bot 已运行 {bh}h {bm}m)"
+            if PROXY_URL:
+                status_text += "\nxd4a 代理: " + PROXY_URL.split("://")[-1].split("@")[-1][:30]
         elif _bot_status == "error":
             short_err = _bot_error_msg[:60].replace("\n", " ")
             status_text = f"xd34 错误: {short_err}"
@@ -180,7 +190,7 @@ def create_ui():
             rate = gr.Textbox(label="速率限制", interactive=False)
 
         # 页面加载 + 每 30 秒自动刷新状态
-        demo.load(get_status, outputs=[status, platforms, uptime, rate], every=30)
+        demo.load(get_status, outputs=[status, platforms, uptime, rate])
     return demo
 
 
@@ -189,25 +199,25 @@ def create_ui():
 # ============================================================
 
 def _run_bot_in_thread():
-    """在独立线程中运行机器人，带完整状态追踪和错误诊断"""
+    """在独立线程中运行机器人（Polling 模式），带完整状态追踪"""
     global _bot_status, _bot_error_msg, _bot_start_time
 
     _bot_status = "starting"
     _bot_start_time = time.time()
 
-    logger.info("机器人线程启动...")
+    logger.info("机器人线程启动 (Polling 模式)...")
 
     try:
         from bot import start_bot
 
-        # 创建独立事件循环
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
         _bot_status = "running"
         logger.info("xdad 机器人事件循环启动，开始轮询 Telegram...")
 
-        loop.run_until_complete(start_bot())
+        # Polling mode - no webhook_url
+        loop.run_until_complete(start_bot(webhook_url=None))
 
     except Exception as e:
         _bot_status = "error"
@@ -217,38 +227,36 @@ def _run_bot_in_thread():
         logger.error(f"   错误信息: {e}")
         logger.error(f"   完整堆栈:\n{traceback.format_exc()}")
 
-        # 常见问题诊断
         err_str = str(e).lower()
-        if "unauthorized" in err_str or "401" in err_str or "token" in err_str:
-            logger.error("xd34 xe285 诊断: BOT_TOKEN 无效！请检查 Settings → Secrets → BOT_TOKEN")
-        elif "connection" in err_str or "timeout" in err_str or "network" in err_str:
-            logger.error("xd34 xe285 诊断: 网络连接失败，检查 api.telegram.org 是否可达")
+        if "unauthorized" in err_str or "401" in err_str:
+            logger.error("xd34 xe285 诊断: BOT_TOKEN 无效！")
+        elif "connection" in err_str or "timeout" in err_str:
+            logger.error("xd34 xe285 诊断: 无法连接 Telegram API (检查 TELEGRAM_PROXY_URL)")
         elif "conflict" in err_str or "409" in err_str:
             logger.error("xd34 xe285 诊断: 可能存在另一个实例正在使用同一 token (409 Conflict)")
     finally:
         if _bot_status not in ("error", "stopped"):
             _bot_status = "stopped"
         logger.info(f"机器人线程结束，最终状态: {_bot_status}")
-
-
 def main():
     if not BOT_TOKEN:
-        logger.error("xd34 未设置 BOT_TOKEN！请在 HF Space Settings → Secrets → BOT_TOKEN 添加")
-        logger.error("   获取 Token: @BotFather → /newbot → 复制 token")
-        logger.error("   HF Secrets: Space Settings → Repository Secrets → New Secret")
+        logger.error("xd34 未设置 BOT_TOKEN！请在 HF Space Settings -> Secrets -> BOT_TOKEN 添加")
+        logger.error("   获取 Token: @BotFather -> /newbot -> 复制 token")
+        logger.error("   HF Secrets: Space Settings -> Repository Secrets -> New Secret")
 
     threading.Thread(target=auto_update, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
     threading.Thread(target=start_health_server, daemon=True).start()
 
+    demo = create_ui()
+
+    # ---- Polling 模式 (通过 Cloudflare Worker 代理) ----
     if BOT_TOKEN:
         threading.Thread(target=_run_bot_in_thread, daemon=True).start()
-        logger.info("xdca 机器人后台线程已创建")
+        logger.info("xdca Polling 模式已启动 (通过 Worker 代理)")
 
-    demo = create_ui()
     demo.queue()
     demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
-
 
 if __name__ == "__main__":
     main()

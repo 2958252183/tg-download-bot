@@ -45,6 +45,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "")  # Cloudflare Worker 代理，如 https://xxx.workers.dev/bot
 DOWNLOAD_DIR = tempfile.mkdtemp(prefix="tg_media_")
 
 SUPPORTED_PLATFORMS = list(PLATFORM_MAP.keys())
@@ -484,28 +485,41 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def start_bot():
+async def start_bot(webhook_url: str = None):
+    """启动机器人，支持 webhook 或 polling 模式"""
     if not BOT_TOKEN:
         raise ValueError("未设置 BOT_TOKEN 环境变量")
 
-    # ---- 预验证 Token ----
     from telegram import Bot
     from telegram.error import TelegramError
+    import httpx
 
+    # ---- 构造 API 端点 ----
+    api_base = TELEGRAM_PROXY_URL or "https://api.telegram.org/bot"
+    api_file = api_base.replace("/bot", "/file/bot")
+    logger.info(f"xd4a Telegram API: {api_base[:40]}...")
+
+    # ---- 预验证 Token ----
     logger.info(f"xd4a 正在验证 BOT_TOKEN (前8位): {BOT_TOKEN[:8]}...")
     try:
-        test_bot = Bot(token=BOT_TOKEN)
+        test_bot = Bot(token=BOT_TOKEN, base_url=api_base, base_file_url=api_file)
         me = await test_bot.get_me()
         logger.info(f"xdad Token 有效! 机器人: @{me.username} (ID: {me.id}, Name: {me.first_name})")
-    except TelegramError as e:
-        logger.error(f"xd34 Token 验证失败: {e}")
-        raise ValueError(f"BOT_TOKEN 无效: {e}") from e
     except Exception as e:
-        logger.error(f"xd34 网络连接失败，无法访问 Telegram API: {e}")
-        raise ConnectionError(f"无法连接 Telegram API: {e}") from e
+        logger.error(f"xd34 Token 验证失败: {e}")
+        raise ValueError(f"无法连接 Telegram: {e}") from e
 
     # ---- 构建 Application ----
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .base_url(api_base)
+        .base_file_url(api_file)
+        .connect_timeout(30)
+        .read_timeout(60)
+        .write_timeout(60)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -513,17 +527,26 @@ async def start_bot():
     app.add_handler(CallbackQueryHandler(quality_callback, pattern=r"^q:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(InlineQueryHandler(inline_query))
-
     app.add_error_handler(error_handler)
-
-    logger.info(f"xdca 机器人启动 | {len(SUPPORTED_PLATFORMS)} 平台直连 + yt-dlp 1000+")
-    logger.info(f"速率限制: {RATE_LIMIT} 条/{RATE_WINDOW}秒")
 
     await app.initialize()
     await app.start()
 
-    logger.info("xdad 开始轮询 Telegram 更新...")
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info(f"xdca 机器人启动 | {len(SUPPORTED_PLATFORMS)} 平台直连 + yt-dlp 1000+")
+
+    if webhook_url:
+        # ---- Webhook 模式 ----
+        logger.info(f"xd4a 设置 Webhook: {webhook_url}")
+        await app.bot.set_webhook(url=webhook_url)
+        logger.info("xdad Webhook 已设置，等待 Telegram 推送...")
+
+        import bot as bot_module
+        bot_module._app_instance = app
+    else:
+        # ---- Polling 模式 ----
+        logger.info("速率限制: %s 条/%s秒", RATE_LIMIT, RATE_WINDOW)
+        logger.info("xdad 开始轮询 Telegram 更新...")
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
     try:
         while True:
@@ -531,7 +554,11 @@ async def start_bot():
     except asyncio.CancelledError:
         logger.info("机器人收到停止信号")
 
-    await app.updater.stop()
+    if not webhook_url:
+        await app.updater.stop()
     await app.stop()
     await app.shutdown()
     shutil.rmtree(DOWNLOAD_DIR, ignore_errors=True)
+
+# Global reference for webhook handler
+_app_instance = None
