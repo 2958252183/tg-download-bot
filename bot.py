@@ -305,13 +305,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     links = extract_all_links(text)
     if not links:
         # No links - route to AI chat
-        if AI_API_KEY:
+        # Private chat fallback: show tutorial
+        if message.chat.type == "private":
+            top = SUPPORTED_PLATFORMS[:8]
+            await message.reply_text(
+                f"\U0001f44b \u6b22\u8fce\uff01\u6211\u662f\u591a\u5e73\u53f0\u89c6\u9891\u89e3\u6790\u673a\u5668\u4eba\u3002\n\n"
+                f"\U0001f4e4 \u53d1\u94fe\u63a5\uff0c\u6211\u5e2e\u4f60\u4e0b\u8f7d\u89c6\u9891\n"
+                f"\U0001f3a5 \u652f\u6301\uff1a{' | '.join(top)} ...\n\n"
+                f"\u2728 \u5e38\u7528\u547d\u4ee4\uff1a\n"
+                f"  /start - \u5f00\u59cb\u4f7f\u7528\n"
+                f"  /help - \u8be6\u7ec6\u8bf4\u660e\n"
+                f"  /stats - \u8fd0\u884c\u72b6\u6001\n"
+                f"  /clear - \u6e05\u9664AI\u5bf9\u8bdd\n"
+                f"  /platforms - \u652f\u6301\u5e73\u53f0\u5217\u8868\n\n"
+                f"\U0001f4ac \u76f4\u63a5\u53d1\u6d88\u606f\u53ef\u4ee5\u548c\u6211\u804a\u5929\uff08\u9700\u914d\u7f6eAI\uff09"
+            )
+        elif AI_API_KEY:
             await ai_chat(update, context, text)
         else:
             await message.reply_text(
-                "\U0001f44b \u6ca1\u68c0\u6d4b\u5230\u94fe\u63a5\uff0c\u76f4\u63a5\u53d1\u94fe\u63a5\u6211\u5c31\u80fd\u89e3\u6790\uff01\n\n"
-                "\U0001f4ac \u4f60\u4e5f\u53ef\u4ee5\u95ee\u6211\u5173\u4e8e\u673a\u5668\u4eba\u7684\u95ee\u9898\uff0c\n"
-                "\u8bf7\u6c42\u7ba1\u7406\u5458\u914d\u7f6e AI_API_KEY \u5f00\u542f AI \u5bf9\u8bdd\u3002"
+                "\U0001f44b \u53d1\u94fe\u63a5\u6211\u5c31\u80fd\u89e3\u6790\uff01"
             )
         return
 
