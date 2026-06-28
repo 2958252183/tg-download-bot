@@ -129,7 +129,7 @@ class MediaInfo:
 
     def summary(self) -> str:
         """生成简短摘要"""
-        parts = [f"[{self.platform}]"]
+        parts = [f"📺 [{self.platform}]"]
         if self.author:
             parts.append(self.author)
         if self.title:

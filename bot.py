@@ -325,6 +325,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent = await _send_media(update, context, media)
             if sent:
                 ok += 1
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
             else:
                 fail += 1
 
@@ -451,7 +455,11 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
             )
             return False
 
-        cap = media.summary()
+        cap = f"📺 [{media.platform}]"
+        if media.author:
+            cap += f"\n👤 {media.author}"
+        if media.title:
+            cap += f"\n📝 {media.title[:200]}"
 
         # 清晰度按钮
         reply_markup = None
@@ -507,7 +515,11 @@ async def _send_images(update: Update, context, media: MediaInfo) -> bool:
                 if os.path.exists(path): os.remove(path)
                 continue
 
-            cap = f"[{media.platform}]"
+            cap = f"📷 [{media.platform}]"
+            if media.author:
+                cap += f"\n👤 {media.author}"
+            if media.title:
+                cap += f"\n📝 {media.title[:200]}"
             if total > 1: cap += f" ({i+1}/{total})"
             if media.title: cap += f"\n{media.title[:200]}"
 
@@ -575,7 +587,7 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        cap = f"{media.summary()}\n清晰度: {opt.label}"
+        cap = f"📺 [{media.platform}]\n👤 {media.author}\n📝 {media.title[:200]}\n🎥 清晰度: {opt.label}"
         if opt.filesize:
             cap += f" | {opt.filesize/1024/1024:.1f}MB"
 
