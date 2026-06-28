@@ -623,6 +623,17 @@ def _ytdlp_extract(url: str, platform: str) -> Optional[MediaInfo]:
                 os.remove(opts["cookiefile"])
             except Exception:
                 pass
+        err_msg = str(e)
+        if any(kw in err_msg.lower() for kw in ["login", "cookie", "auth", "private", "unavailable"]):
+            set_parse_error(url, "需要登录或cookie已过期，请重新导出cookie")
+        elif "not found" in err_msg.lower() or "unavailable" in err_msg.lower():
+            set_parse_error(url, "视频不存在或已被删除")
+        elif "geo" in err_msg.lower() or "region" in err_msg.lower():
+            set_parse_error(url, "该视频有地区限制，当前服务器无法访问")
+        elif "rate" in err_msg.lower():
+            set_parse_error(url, "平台频率限制，请稍后再试")
+        else:
+            set_parse_error(url, f"解析失败: {err_msg[:60]}")
         print(f"[yt-dlp] 提取失败: {e}")
         return None
 
