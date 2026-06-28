@@ -355,6 +355,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await status.edit_text(final)
+        await asyncio.sleep(3)
+        await status.delete()
     except Exception:
         pass
 
@@ -433,6 +435,10 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
                         pass
 
         ok = await download_file(media.best_url, path, progress_cb)
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
         if not ok:
             from parsers import ytdlp_download
             result = await ytdlp_download(media.source_url, req_dir)
