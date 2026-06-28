@@ -45,7 +45,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "")  # Cloudflare Worker 代理，如 https://xxx.workers.dev/bot
+TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "")  # Cloudflare Worker 代理
+AI_API_KEY = os.environ.get("AI_API_KEY", "")
+AI_API_BASE = os.environ.get("AI_API_BASE", "https://api.openai.com/v1")
+AI_MODEL = os.environ.get("AI_MODEL", "gpt-4o-mini")
 DOWNLOAD_DIR = tempfile.mkdtemp(prefix="tg_media_")
 
 SUPPORTED_PLATFORMS = list(PLATFORM_MAP.keys())
@@ -83,14 +86,21 @@ quality_store: Dict[str, Tuple[MediaInfo, List[QualityOption]]] = {}
 # ============================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    top = SUPPORTED_PLATFORMS[:14]
+    top = SUPPORTED_PLATFORMS[:12]
+    ai_status = "" if AI_API_KEY else "\n\n    AI\u52a9\u624b\uff1a\u914d\u7f6e AI_API_KEY \u540e\u53ef\u5f00\u542f"
     await update.message.reply_text(
-        f"万能链接解析机器人\n\n"
-        f"直连平台：{' | '.join(top)} ...\n"
-        f"yt-dlp 引擎额外覆盖 1000+ 全球网站\n\n"
-        f"默认发送最高画质，点击按钮切换清晰度\n"
-        f"速率限制：每分钟 {RATE_LIMIT} 条\n"
-        f"群聊：设为管理员后自动解析"
+        f"\U0001f916 \u4f60\u597d\uff0c\u6211\u662f\u4e07\u80fd\u89e3\u6790\u673a\u5668\u4eba\uff01\n\n"
+        f"\U0001f4e5 \u53d1\u94fe\u63a5\uff0c\u6211\u5e2e\u4f60\u4e0b\u8f7d\u89c6\u9891\u56fe\u7247\n"
+        f"\U0001f3a5 \u652f\u6301\uff1a{' | '.join(top)} ...\n"
+        f"\U0001f310 yt-dlp \u5f15\u64ce\u8986\u76d6 1000+ \u5168\u7403\u7f51\u7ad9\n\n"
+        f"\u2728 \u529f\u80fd\uff1a\n"
+        f"  \u2022 \u81ea\u52a8\u6700\u9ad8\u753b\u8d28 + \u591a\u6e05\u6670\u5ea6\u5207\u6362\n"
+        f"  \u2022 \u89c6\u9891\u667a\u80fd\u538b\u7f29 (50MB\u5185)\n"
+        f"  \u2022 \u901f\u7387\u9650\u5236\uff1a\u6bcf\u5206\u949f {RATE_LIMIT} \u6761\n"
+        f"  \u2022 \u5185\u8054\u6a21\u5f0f\uff1a\u5728\u4efb\u610f\u804a\u5929\u6846 @\u6211 \u89e3\u6790\n"
+        f"  \u2022 \u7fa4\u804a\u81ea\u52a8\u89e3\u6790\uff08\u9700\u7ba1\u7406\u5458\u6743\u9650\uff09"
+        f"{ai_status}\n\n"
+        f"\U0001f4ac \u53d1 /help \u67e5\u770b\u8be6\u7ec6\u8bf4\u660e\uff0c\u76f4\u63a5\u804a\u5929\u4e5f\u53ef\u4ee5\u54e6\uff5e"
     )
 
 
@@ -154,6 +164,101 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
+# AI 对话
+# ============================================================
+
+# 对话历史缓存 (user_id -> list of messages)
+_chat_history: Dict[int, list] = {}
+MAX_HISTORY = 20
+
+# 机器人自我介绍 prompt
+SYSTEM_PROMPT = """你是一个 Telegram 万能链接解析机器人的 AI 助手。
+你的功能：
+- 解析抖音、小红书、快手、微博、B站、YouTube、Twitter/X、Instagram、Facebook、TikTok 等 30+ 平台的视频和图片
+- yt-dlp 引擎额外支持 1000+ 全球网站
+- 支持多清晰度切换（1080p/720p/540p/480p）
+- 支持内联模式（在任意聊天框 @机器人名 链接即可解析）
+- 速率限制：每分钟 10 条链接
+- 视频超过 50MB 会自动压缩
+- 支持群聊自动解析（需管理员权限）
+
+请用中文简短友好地回答用户问题。不要编造功能。如果用户问不支持的功能，诚实说明。回答控制在 100 字以内。"""
+
+async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str):
+    """处理 AI 对话"""
+    if not AI_API_KEY:
+        return
+
+    user = update.effective_user
+    user_id = user.id
+    message = update.message
+
+    # 获取或初始化历史
+    if user_id not in _chat_history:
+        _chat_history[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    history = _chat_history[user_id]
+    history.append({"role": "user", "content": user_text})
+
+    # 限制历史长度
+    if len(history) > MAX_HISTORY + 1:
+        history = [history[0]] + history[-(MAX_HISTORY):]
+        _chat_history[user_id] = history
+
+    # 显示输入中...
+    typing_task = asyncio.create_task(_send_typing_loop(message))
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{AI_API_BASE}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {AI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": AI_MODEL,
+                    "messages": history,
+                    "max_tokens": 500,
+                    "temperature": 0.7,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data["choices"][0]["message"]["content"].strip()
+
+            history.append({"role": "assistant", "content": reply})
+            _chat_history[user_id] = history
+
+            # 限制回复长度
+            if len(reply) > 1000:
+                reply = reply[:997] + "..."
+
+            await message.reply_text(reply)
+
+    except Exception as e:
+        logger.error(f"AI chat error: {e}")
+        await message.reply_text("\U0001f614 AI \u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002\n\n\u4f60\u4e5f\u53ef\u4ee5\u76f4\u63a5\u53d1\u94fe\u63a5\u6765\u89e3\u6790\u89c6\u9891\uff01")
+    finally:
+        typing_task.cancel()
+
+async def _send_typing_loop(message):
+    """持续发送 typing 状态"""
+    try:
+        while True:
+            await message.chat.send_action("typing")
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass
+
+# 清除对话历史命令
+async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    _chat_history.pop(user_id, None)
+    await update.message.reply_text("\U0001f9f9 \u5df2\u6e05\u9664\u5bf9\u8bdd\u5386\u53f2\uff01")
+
+
+# ============================================================
 # 消息处理
 # ============================================================
 
@@ -167,6 +272,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     links = extract_all_links(text)
     if not links:
+        # No links - route to AI chat
+        if AI_API_KEY:
+            await ai_chat(update, context, text)
+        else:
+            await message.reply_text(
+                "\U0001f44b \u6ca1\u68c0\u6d4b\u5230\u94fe\u63a5\uff0c\u76f4\u63a5\u53d1\u94fe\u63a5\u6211\u5c31\u80fd\u89e3\u6790\uff01\n\n"
+                "\U0001f4ac \u4f60\u4e5f\u53ef\u4ee5\u95ee\u6211\u5173\u4e8e\u673a\u5668\u4eba\u7684\u95ee\u9898\uff0c\n"
+                "\u8bf7\u6c42\u7ba1\u7406\u5458\u914d\u7f6e AI_API_KEY \u5f00\u542f AI \u5bf9\u8bdd\u3002"
+            )
         return
 
     # 群聊兼容
@@ -283,20 +397,27 @@ async def _send_video(update: Update, context, media: MediaInfo) -> bool:
     path = os.path.join(req_dir, f"{clean_filename(media.title)}_{uuid.uuid4().hex[:6]}.mp4")
 
     try:
-        # 下载（带进度回调）
+        # 下载（带进度条回调）
+        progress_msg = await update.message.reply_text("\U0001f4e5 \u5f00\u59cb\u4e0b\u8f7d...")
         last_pct = -1
         async def progress_cb(downloaded, total):
             nonlocal last_pct
             if total > 0:
                 pct = int(downloaded / total * 100)
-                if pct >= last_pct + 20:  # 每20%更新一次
+                if pct >= last_pct + 10:
                     last_pct = pct
+                    bar = "\u2588" * (pct // 10) + "\u2591" * (10 - pct // 10)
+                    size_mb = total / 1024 / 1024
+                    dled_mb = downloaded / 1024 / 1024
                     try:
-                        await update.message.reply_text(f"下载中... {pct}%")
+                        await progress_msg.edit_text(
+                            f"\U0001f4e5 \u4e0b\u8f7d\u4e2d [{bar}] {pct}%\n"
+                            f"{dled_mb:.1f}MB / {size_mb:.1f}MB"
+                        )
                     except Exception:
                         pass
 
-        ok = await download_file(media.best_url, path)
+        ok = await download_file(media.best_url, path, progress_cb)
         if not ok:
             from parsers import ytdlp_download
             result = await ytdlp_download(media.source_url, req_dir)
@@ -524,6 +645,7 @@ async def start_bot(webhook_url: str = None):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("platforms", platforms_cmd))
+    app.add_handler(CommandHandler("clear", clear_cmd))
     app.add_handler(CallbackQueryHandler(quality_callback, pattern=r"^q:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(InlineQueryHandler(inline_query))

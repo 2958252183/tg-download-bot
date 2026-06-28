@@ -163,8 +163,8 @@ def clean_filename(title: str, max_len: int = 80) -> str:
 
 
 @_retry(max_tries=3, base_delay=1.5)
-async def download_file(url: str, save_path: str) -> bool:
-    """流式下载文件（支持代理+重试）"""
+async def download_file(url: str, save_path: str, progress_cb=None) -> bool:
+    """流式下载文件（支持代理+重试+进度回调）"""
     client_kwargs = {
         "timeout": 180.0,
         "follow_redirects": True,
@@ -177,9 +177,14 @@ async def download_file(url: str, save_path: str) -> bool:
         async with httpx.AsyncClient(**client_kwargs) as client:
             async with client.stream("GET", url) as resp:
                 resp.raise_for_status()
+                total = int(resp.headers.get("content-length", 0))
+                downloaded = 0
                 with open(save_path, "wb") as f:
-                    async for chunk in resp.aiter_bytes(8192):
+                    async for chunk in resp.aiter_bytes(65536):
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_cb and total > 0:
+                            await progress_cb(downloaded, total)
         return True
     except Exception as e:
         print(f"[下载] {e}")
