@@ -281,42 +281,43 @@ def extract_all_links(text: str) -> List[Tuple[str, str]]:
 # ============================================================
 
 class DouyinParser:
-    """抖音解析器 - 使用官方API"""
+    """抖音解析器 - 从页面 ROUTER_DATA 提取（2024.06 抖音API需要a-bogus签名，改为SSR页面解析）"""
     PLATFORM = "抖音"
-
     @classmethod
     def matches(cls, url: str) -> bool:
         return bool(re.search(r"v\.douyin\.com|douyin\.com/(video|note)/|iesdouyin\.com", url))
-
     async def parse(self, url: str) -> Optional[MediaInfo]:
         try:
             ckwargs = {"follow_redirects": True, "timeout": 20.0, "headers": HEADERS["mobile"]}
             if PROXY_URL: ckwargs["proxy"] = PROXY_URL
             async with httpx.AsyncClient(**ckwargs) as client:
-                if "v.douyin.com" in url:
-                    url = str((await client.get(url)).url)
-
-                item_id = None
-                for seg in ["/video/", "/note/"]:
-                    if seg in url:
-                        item_id = url.split(seg)[1].split("?")[0].split("/")[0].strip("/")
+                # 获取页面 HTML
+                resp = await client.get(url)
+                html = resp.text
+                # 从 HTML 中提取 window._ROUTER_DATA（抖音 SSR 渲染数据）
+                aweme = None
+                scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+                for s in scripts:
+                    if s.strip().startswith('window._ROUTER_DATA'):
+                        json_str = s.strip()
+                        prefix = 'window._ROUTER_DATA = '
+                        json_str = json_str[len(prefix):].rstrip(';').strip()
+                        try:
+                            router_data = json.loads(json_str)
+                            for k, v in router_data.get('loaderData', {}).items():
+                                if v and 'video' in k.lower():
+                                    vir = v.get('videoInfoRes', {})
+                                    items = vir.get('item_list', [])
+                                    if items:
+                                        aweme = items[0]
+                                    break
+                        except Exception:
+                            pass
                         break
-                if not item_id and "/share/video/" in url:
-                    item_id = url.split("/share/video/")[1].split("?")[0].strip("/")
-                if not item_id:
-                    return None
-
-                api = f"https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id={item_id}"
-                ah = {**HEADERS["desktop"], "Referer": f"https://www.douyin.com/video/{item_id}"}
-                data = (await client.get(api, headers=ah)).json()
-
-                aweme = data.get("aweme_detail", {})
                 if not aweme:
                     return None
-
                 title = aweme.get("desc", "")
                 author = aweme.get("author", {}).get("nickname", "")
-
                 # 图集
                 images = aweme.get("images", [])
                 if images:
@@ -326,7 +327,6 @@ class DouyinParser:
                         if ul: urls.append(ul[0])
                     if urls:
                         return MediaInfo("image", urls, title, self.PLATFORM, author=author)
-
                 # 视频
                 vi = aweme.get("video", {})
                 for key in ("play_addr_h265", "play_addr_h264", "play_addr"):
@@ -334,18 +334,21 @@ class DouyinParser:
                     ul = addr.get("url_list", [])
                     if ul:
                         vid_url = ul[0].replace("playwm", "play")
+                        # 多清晰度选项
+                        quality_options = []
+                        for ratio, label in [("1080p", "1080p"), ("720p", "720p"), ("540p", "540p"), ("480p", "480p")]:
+                            q_url = re.sub(r'ratio=\w+', f'ratio={ratio}', vid_url)
+                            quality_options.append(QualityOption(label, int(ratio.replace('p', '')), q_url))
                         return MediaInfo(
                             "video", [vid_url],
                             title, self.PLATFORM,
                             aweme.get("duration", 0) // 1000, author,
-                            quality_options=[QualityOption("默认", 0, vid_url)]
+                            quality_options=quality_options
                         )
                 return None
         except Exception as e:
             print(f"[抖音] {e}")
             return None
-
-
 class XiaohongshuParser:
     """小红书解析器"""
     PLATFORM = "小红书"
